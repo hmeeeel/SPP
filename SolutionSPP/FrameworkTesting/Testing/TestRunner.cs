@@ -20,11 +20,21 @@ namespace FrameworkTesting.Testing
 
         public async Task<List<TestClassResult>> RunAllAsync(Assembly assembly)
         {
-            var testClasses = assembly.GetTypes()
-                .Where(t => t.GetCustomAttribute<TestClassAttribute>() is not null
-                            && t.GetCustomAttribute<IgnoreAttribute>() is null)
-                .OrderBy(t => t.Name)
-                .ToList();
+            List<Type> testClasses;
+            try
+            {
+                testClasses = assembly.GetTypes()
+                    .Where(t => t.GetCustomAttribute<TestClassAttribute>() is not null
+                                && t.GetCustomAttribute<IgnoreAttribute>() is null)
+                    .OrderBy(t => t.Name)
+                    .ToList();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                throw new TestFrameworkException(
+                    $"Не удалось загрузить типы из сборки '{assembly.GetName().Name}': {ex.LoaderExceptions.FirstOrDefault()?.Message}",
+                    ex);
+            }
 
             _output.WriteLine($"  Запуск тестов из: {assembly.GetName().Name}");
             _output.WriteLine($"  Найдено классов: {testClasses.Count}");
@@ -39,10 +49,12 @@ namespace FrameworkTesting.Testing
 
         public async Task<TestClassResult> RunClassAsync(Type testClass)
         {
-            var classAttr = testClass.GetCustomAttribute<TestClassAttribute>();
+            var classAttr = testClass.GetCustomAttribute<TestClassAttribute>()!;
+            var categoryLabel = classAttr.Category is not null ? $" [{classAttr.Category}]" : "";
             var classResult = new TestClassResult { ClassName = testClass.Name };
 
-            _output.WriteLine($"  {testClass.Name}");
+
+            _output.WriteLine($"  {testClass.Name}{categoryLabel}");
 
             bool isShared = testClass.GetCustomAttribute<SharedContextAttribute>() is not null; //!
             var setupMethod = FindMethodWithAttribute<TestSetupAttribute>(testClass);
@@ -57,25 +69,46 @@ namespace FrameworkTesting.Testing
 
             foreach (var method in testMethods)
             {
-                object? instance = isShared ? sharedContext : CreateInstance(testClass);
-                if (instance is null)
+
+                var dataRows = method.GetCustomAttributes<DataRowAttribute>().ToList();
+
+                if (dataRows.Count > 0)
                 {
-                    classResult.Results.Add(new TestMethodResult
+                    foreach (var row in dataRows) // для кажд
                     {
-                        ClassName = testClass.Name,
-                        MethodName = method.Name,
-                        DisplayName = method.Name,
-                        Status = TestStatus.Error,
-                        ErrorMessage = $"Не удалось создать экземпляр {testClass.Name}"
-                    });
-                    continue;
+                        object? instance = isShared ? sharedContext : CreateInstance(testClass);
+                        if (instance is null)
+                        {
+                            classResult.Results.Add(CreateInstanceErrorResult(testClass.Name, method.Name));
+                            continue;
+                        }
+
+                        var displayName = row.DisplayName
+                            ?? BuildParameterizedDisplayName(method, row.Values);
+
+                        var result = await RunParameterizedTestAsync(
+                            instance, method, row.Values, displayName, setupMethod, teardownMethod);
+
+                        classResult.Results.Add(result);
+                        _output.WriteLine($"   {result}");
+                    }
+                }
+                else
+                {
+                    object? instance = isShared ? sharedContext : CreateInstance(testClass);
+                    if (instance is null)
+                    {
+                        classResult.Results.Add(CreateInstanceErrorResult(testClass.Name, method.Name));
+                        continue;
+                    }
+
+                    var result = await RunTestMethodAsync(instance, method, setupMethod, teardownMethod);
+                    classResult.Results.Add(result);
+                    _output.WriteLine($"   {result}");
                 }
 
-                var result = await RunTestMethodAsync(instance, method, setupMethod, teardownMethod);
-                classResult.Results.Add(result);
-                _output.WriteLine($"   {result}");
-            }
 
+            }
             _output.WriteLine();
             return classResult;
         }
@@ -87,7 +120,7 @@ namespace FrameworkTesting.Testing
             var ignoreAttr = method.GetCustomAttribute<IgnoreAttribute>();
             var expectedExAttr = method.GetCustomAttribute<ExpectedExceptionAttribute>();
 
-            var displayName = method.Name;
+            var displayName = methodAttr.DisplayName ?? method.Name;
             var startTime = DateTime.UtcNow;
 
             if (ignoreAttr is not null)
@@ -106,7 +139,7 @@ namespace FrameworkTesting.Testing
             try
             {
                 if (setupMethod is not null)
-                    await InvokeAsync(instance, setupMethod);
+                    await InvokeAsync(instance, setupMethod, null);
             }
             catch (Exception ex)
             {
@@ -118,7 +151,7 @@ namespace FrameworkTesting.Testing
             TestMethodResult result;
             try
             {
-                await InvokeAsync(instance, method); // !!!!!
+                await InvokeAsync(instance, method, null); // !!!!!
 
                 if (expectedExAttr is not null)
                 {
@@ -184,7 +217,7 @@ namespace FrameworkTesting.Testing
             try
             {
                 if (teardownMethod is not null)
-                    await InvokeAsync(instance, teardownMethod);
+                    await InvokeAsync(instance, teardownMethod, null);
             }
             catch (Exception ex)
             {
@@ -206,9 +239,9 @@ namespace FrameworkTesting.Testing
                 .FirstOrDefault(m => m.GetCustomAttribute<TAttr>() is not null);
 
 
-        private static async Task InvokeAsync(object instance, MethodInfo method)
+        private static async Task InvokeAsync(object instance, MethodInfo method, object?[]? args)
         {
-            var result = method.Invoke(instance, null);
+            var result = method.Invoke(instance, args); 
             if (result is Task task)
                 await task;
         }
@@ -253,5 +286,99 @@ namespace FrameworkTesting.Testing
             _output.WriteLine($"  Пропущено: {skipped}");
             _output.WriteLine($"  Ошибки: {errors}");
         }
+
+        private async Task<TestMethodResult> RunParameterizedTestAsync( object instance, MethodInfo method, object?[] args, string displayName,
+            MethodInfo? setupMethod, MethodInfo? teardownMethod)
+        {
+            var ignoreAttr = method.GetCustomAttribute<IgnoreAttribute>();
+            var expectedExAttr = method.GetCustomAttribute<ExpectedExceptionAttribute>();
+            var startTime = DateTime.UtcNow;
+
+            if (ignoreAttr is not null)
+                return new TestMethodResult
+                {
+                    ClassName = instance.GetType().Name,
+                    MethodName = method.Name,
+                    DisplayName = displayName,
+                    Status = TestStatus.Skipped,
+                    Duration = TimeSpan.Zero
+                };
+
+            try
+            {
+                if (setupMethod is not null)
+                    await InvokeAsync(instance, setupMethod, null);
+            }
+            catch (Exception ex)
+            {
+                return ErrorResult(instance, method, displayName, startTime,
+                    $"Setup упал: {ex.InnerException?.Message ?? ex.Message}");
+            }
+
+            TestMethodResult result;
+            try
+            {
+                await InvokeAsync(instance, method, args); 
+
+                result = expectedExAttr is not null
+                    ? FailedResult(instance, method, displayName, startTime,
+                        $"Ожидалось исключение {expectedExAttr.ExceptionType.Name}, но не выброшено")
+                    : new TestMethodResult
+                    {
+                        ClassName = instance.GetType().Name,
+                        MethodName = method.Name,
+                        DisplayName = displayName,
+                        Status = TestStatus.Passed,
+                        Duration = DateTime.UtcNow - startTime
+                    };
+            }
+            catch (Exception rawEx)
+            {
+                var ex = rawEx is TargetInvocationException tie ? tie.InnerException ?? tie : rawEx;
+
+                if (expectedExAttr is not null && expectedExAttr.ExceptionType.IsInstanceOfType(ex))
+                    result = new TestMethodResult
+                    {
+                        ClassName = instance.GetType().Name,
+                        MethodName = method.Name,
+                        DisplayName = displayName,
+                        Status = TestStatus.Passed,
+                        Duration = DateTime.UtcNow - startTime
+                    };
+                else if (ex is AssertException afe)
+                    result = FailedResult(instance, method, displayName, startTime, afe.Message, afe);
+                else
+                    result = FailedResult(instance, method, displayName, startTime,
+                        $"{ex.GetType().Name}: {ex.Message}", ex);
+            }
+
+            try
+            {
+                if (teardownMethod is not null)
+                    await InvokeAsync(instance, teardownMethod, null);
+            }
+            catch (Exception ex)
+            {
+                _output.WriteLine($"   Teardown упал для {method.Name}: {ex.InnerException?.Message ?? ex.Message}");
+            }
+
+            return result;
+        }
+
+        private static string BuildParameterizedDisplayName(MethodInfo method, object?[] values)
+        {
+            var args = string.Join(", ", values.Select(v => v?.ToString() ?? "null"));
+            return $"{method.Name}({args})";
+        }
+
+        private static TestMethodResult CreateInstanceErrorResult(string className, string methodName) =>
+    new()
+    {
+        ClassName = className,
+        MethodName = methodName,
+        DisplayName = methodName,
+        Status = TestStatus.Error,
+        ErrorMessage = $"Не удалось создать экземпляр {className}"
+    };
     }
 }

@@ -9,5 +9,11 @@ namespace FrameworkTesting.Attributes
     [AttributeUsage(AttributeTargets.Method)]
     public class TestMethodAttribute : Attribute
     {
+        public string? DisplayName { get; }
+        public TestMethodAttribute() { }
+        public TestMethodAttribute(string displayName)
+        {
+            DisplayName = displayName;
+        }
     }
 }
