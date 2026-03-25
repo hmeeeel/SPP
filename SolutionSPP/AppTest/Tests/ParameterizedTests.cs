@@ -20,7 +20,7 @@ namespace AppTest.Tests
         }
 
         [TestMethod("Проверка возраста")]
-        [DataRow(17, false, DisplayName = "Возраст 17, false - 1")]
+        [DataRow(17, false, 000, DisplayName = "Возраст 17, false - 1")]
         [DataRow(18, true, DisplayName = "Возраст 18, true - 1")]
         [DataRow(25, true, DisplayName = "Возраст 25, true - 1")]
         [DataRow(0, false, DisplayName = "Возраст 0, false - 1")]

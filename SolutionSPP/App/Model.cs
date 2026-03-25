@@ -15,9 +15,9 @@ namespace App
         public decimal DebtAmount { get; set; }
 
         // модифиц 
-        public int CreditAmount { get; set; } = 650; 
+        public int CreditAmount { get; set; } = 650; // +50
         public bool IsApproved { get; set; } 
-        public decimal ApprovedAmount { get; set; } 
+        public decimal ApprovedAmount { get; set; } //Income * 3
 
     }
 }

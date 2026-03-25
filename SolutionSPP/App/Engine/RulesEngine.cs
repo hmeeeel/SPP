@@ -54,7 +54,7 @@ namespace App.Engine
 
                     if (state[neighbor] == 1)
                     {
-                        var cycle = string.Join(" → ", path.SkipWhile(n => n != neighbor)
+                        var cycle = string.Join(" -> ", path.SkipWhile(n => n != neighbor)
                             .Append(neighbor));
                         throw new RuleException($"Обнаружен цикл: {cycle}");
                     }

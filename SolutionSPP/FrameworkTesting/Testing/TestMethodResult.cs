@@ -36,14 +36,24 @@ namespace FrameworkTesting.Testing
                 _ => "?"
             };
 
+            // Для Skipped Duration = Zero — время не выводим
+            var time = Status != TestStatus.Skipped
+                ? $" ({FormatMs(Duration)})"
+                : string.Empty;
+
             var suffix = Status switch
             {
                 TestStatus.Failed => $"\n     FAILED: {ErrorMessage}",
                 TestStatus.Skipped => $"\n     SKIPPED: {SkipReason ?? "Skipped"}",
                 _ => ""
             };
-            return $"{icon} {DisplayName}{suffix}";
+
+            return $"{icon}{time} {DisplayName}{suffix}";
         }
+
+        internal static string FormatMs(TimeSpan d) =>
+            d.TotalMilliseconds < 1000
+                ? $"{(int)d.TotalMilliseconds}мс"
+                : $"{d.TotalSeconds:F2}с";
     }
 }
-
