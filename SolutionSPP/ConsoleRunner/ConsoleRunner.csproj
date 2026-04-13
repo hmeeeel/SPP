@@ -13,9 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CustomThreadPool\CustomThreadPool.csproj" />
+    <ProjectReference Include="..\FrameworkTesting\FrameworkTesting.csproj" />
     <ProjectReference Include="..\AppTest\AppTest.csproj" />
     <ProjectReference Include="..\App\App.csproj" />
-    <ProjectReference Include="..\FrameworkTesting\FrameworkTesting.csproj" />
   </ItemGroup>
 
 </Project>

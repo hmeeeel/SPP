@@ -20,40 +20,24 @@ namespace FrameworkTesting.Testing
 
         public TestRunner(TestRunnerOptions? options)
         {
-            _output = Console.Out;
+            _output  = Console.Out;
             _options = options ?? new TestRunnerOptions();
         }
 
         private void SafeWriteLine(string text)
         {
             lock (_outputLock)
-            {
                 _output.WriteLine($"[T{Environment.CurrentManagedThreadId:D2}] {text}");
-            }
         }
 
         public async Task<List<TestClassResult>> RunAllAsync(Assembly assembly)
         {
             _totalPassed = _totalFailed = _totalSkipped = _totalErrors = 0;
 
-            List<Type> testClasses;
-            try
-            {
-                testClasses = assembly.GetTypes()
-                    .Where(t => t.GetCustomAttribute<TestClassAttribute>() is not null
-                                && t.GetCustomAttribute<IgnoreAttribute>() is null)
-                    .OrderBy(t => t.Name)
-                    .ToList();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                throw new TestFrameworkException(
-                     $"Не удалось загрузить типы из сборки '{assembly.GetName().Name}': {ex.LoaderExceptions.FirstOrDefault()?.Message}", ex);
-            }
+            var testClasses = DiscoverClasses(assembly);
 
             SafeWriteLine($"  Запуск тестов из: {assembly.GetName().Name}");
             SafeWriteLine($"  Найдено классов: {testClasses.Count}");
-
 
             var allResults = new List<TestClassResult>();
             using var semaphore = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
@@ -74,6 +58,56 @@ namespace FrameworkTesting.Testing
             return allResults;
         }
 
+
+
+        public async Task<List<TestClassResult>> RunAllWithPoolAsync(
+            Assembly assembly,
+            Action<Action, string> enqueueToPool)
+        {
+            _totalPassed = _totalFailed = _totalSkipped = _totalErrors = 0;
+
+            var testClasses = DiscoverClasses(assembly);
+
+            SafeWriteLine($"  [DynPool] Запуск тестов из: {assembly.GetName().Name}");
+            SafeWriteLine($"  [DynPool] Найдено классов: {testClasses.Count}");
+
+            var allResults = new List<TestClassResult>();
+
+            // Для каждого класса создаём TCS и отправляем работу в пул
+            var tcsList = testClasses.Select(cls =>
+            {
+                var tcs = new TaskCompletionSource<TestClassResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+
+                // enqueueToPool принимает Action - выполняется внутри Thread рабочего потока
+                enqueueToPool(() =>
+                {
+                    try
+                    {
+                        // Синхронно ждём результата async-метода внутри потока пула
+                        var result = RunClassAsync(cls).GetAwaiter().GetResult();
+                        tcs.SetResult(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.SetException(ex);
+                    }
+                }, cls.Name);
+
+                return tcs.Task;
+            }).ToList();
+
+            var results = await Task.WhenAll(tcsList);
+
+            foreach (var r in results)
+                lock (allResults)
+                    allResults.Add(r);
+
+            PrintSummary(allResults);
+            return allResults;
+        }
+
+
         public async Task<TestClassResult> RunClassAsync(Type testClass)
         {
             var classAttr     = testClass.GetCustomAttribute<TestClassAttribute>()!;
@@ -82,9 +116,9 @@ namespace FrameworkTesting.Testing
 
             SafeWriteLine($"  {testClass.Name}{categoryLabel}");
 
-            bool isShared          = testClass.GetCustomAttribute<SharedContextAttribute>() is not null;
-            var setupMethod        = FindMethodWithAttribute<TestSetupAttribute>(testClass);
-            var teardownMethod     = FindMethodWithAttribute<TestTeardownAttribute>(testClass);
+            bool isShared      = testClass.GetCustomAttribute<SharedContextAttribute>() is not null;
+            var setupMethod    = FindMethodWithAttribute<TestSetupAttribute>(testClass);
+            var teardownMethod = FindMethodWithAttribute<TestTeardownAttribute>(testClass);
 
             var testMethods = testClass.GetMethods(BindingFlags.Public | BindingFlags.Instance)
                 .Where(m => m.GetCustomAttribute<TestMethodAttribute>() is not null)
@@ -92,9 +126,7 @@ namespace FrameworkTesting.Testing
                 .ToList();
 
             object? sharedContext = isShared ? CreateInstance(testClass) : null;
-
-
-            bool parallelMethods = _options.ParallelizeMethods && !isShared;
+            bool parallelMethods  = _options.ParallelizeMethods && !isShared;
 
             var classWatch = Stopwatch.StartNew();
             if (parallelMethods)
@@ -133,7 +165,7 @@ namespace FrameworkTesting.Testing
                             IncrementCounter(err.Status);
                             continue;
                         }
-                        var dn = row.DisplayName ?? BuildParameterizedDisplayName(method, row.Values);
+                        var dn     = row.DisplayName ?? BuildParameterizedDisplayName(method, row.Values);
                         var result = await RunParameterizedTestAsync(
                             instance, method, row.Values, dn, setupMethod, teardownMethod);
                         classResult.Results.Add(result);
@@ -164,7 +196,7 @@ namespace FrameworkTesting.Testing
             MethodInfo? setupMethod, MethodInfo? teardownMethod,
             TestClassResult classResult)
         {
-            using var semaphore  = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
+            using var semaphore   = new SemaphoreSlim(_options.MaxDegreeOfParallelism);
             var methodResults = new List<TestMethodResult>();
             var tasks         = new List<Task>();
 
@@ -189,9 +221,10 @@ namespace FrameworkTesting.Testing
                                     lock (methodResults) methodResults.Add(e);
                                     IncrementCounter(e.Status); return;
                                 }
-                                var dn = cr.DisplayName ?? BuildParameterizedDisplayName(cm, cr.Values);
-                                var r = await RunParameterizedTestAsync(inst, cm, cr.Values,
-                                                                         dn, setupMethod, teardownMethod);
+                                var dn = cr.DisplayName
+                                    ?? BuildParameterizedDisplayName(cm, cr.Values);
+                                var r = await RunParameterizedTestAsync(
+                                    inst, cm, cr.Values, dn, setupMethod, teardownMethod);
                                 lock (methodResults) methodResults.Add(r);
                                 IncrementCounter(r.Status);
                                 SafeWriteLine($"   {r}");
@@ -229,7 +262,6 @@ namespace FrameworkTesting.Testing
             classResult.Results.AddRange(methodResults);
         }
 
-
         private async Task<TestMethodResult> RunTestMethodAsync(
             object instance, MethodInfo method,
             MethodInfo? setupMethod, MethodInfo? teardownMethod)
@@ -244,7 +276,7 @@ namespace FrameworkTesting.Testing
             if (ignoreAttr is not null)
                 return new TestMethodResult
                 {
-                    ClassName = instance.GetType().Name, MethodName = method.Name,
+                    ClassName   = instance.GetType().Name, MethodName = method.Name,
                     DisplayName = displayName, Status = TestStatus.Skipped, Duration = TimeSpan.Zero
                 };
 
@@ -280,7 +312,7 @@ namespace FrameworkTesting.Testing
             if (ignoreAttr is not null)
                 return new TestMethodResult
                 {
-                    ClassName = instance.GetType().Name, MethodName = method.Name,
+                    ClassName   = instance.GetType().Name, MethodName = method.Name,
                     DisplayName = displayName, Status = TestStatus.Skipped, Duration = TimeSpan.Zero
                 };
 
@@ -305,19 +337,18 @@ namespace FrameworkTesting.Testing
         }
 
         private async Task<TestMethodResult> RunWithOptionalTimeoutAsync(
-        object instance, MethodInfo method, object?[]? args,
-        string displayName, DateTime startTime,
-        ExpectedExceptionAttribute? expectedExAttr, TimeoutAttribute? timeoutAttr)
+            object instance, MethodInfo method, object?[]? args,
+            string displayName, DateTime startTime,
+            ExpectedExceptionAttribute? expectedExAttr, TimeoutAttribute? timeoutAttr)
         {
             if (timeoutAttr is not null)
             {
-                using var cts = new CancellationTokenSource(timeoutAttr.Milliseconds);
+                using var cts   = new CancellationTokenSource(timeoutAttr.Milliseconds);
                 CancellationToken token = cts.Token;
 
                 Task testTask = Task.Run(async () =>
                 {
                     token.ThrowIfCancellationRequested();
-
                     await InvokeAsync(instance, method, args, token);
                 }, token);
 
@@ -337,7 +368,7 @@ namespace FrameworkTesting.Testing
                 catch (Exception rawEx)
                 {
                     return HandleTestException(rawEx, instance, method,
-                                            displayName, startTime, expectedExAttr);
+                                               displayName, startTime, expectedExAttr);
                 }
             }
             else
@@ -346,7 +377,7 @@ namespace FrameworkTesting.Testing
                 catch (Exception rawEx)
                 {
                     return HandleTestException(rawEx, instance, method,
-                                            displayName, startTime, expectedExAttr);
+                                               displayName, startTime, expectedExAttr);
                 }
             }
 
@@ -363,6 +394,24 @@ namespace FrameworkTesting.Testing
                 Status      = TestStatus.Passed,
                 Duration    = DateTime.UtcNow - startTime
             };
+        }
+
+        private static List<Type> DiscoverClasses(Assembly assembly)
+        {
+            try
+            {
+                return assembly.GetTypes()
+                    .Where(t => t.GetCustomAttribute<TestClassAttribute>() is not null
+                                && t.GetCustomAttribute<IgnoreAttribute>() is null)
+                    .OrderBy(t => t.Name)
+                    .ToList();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                throw new TestFrameworkException(
+                    $"Не удалось загрузить типы из '{assembly.GetName().Name}': " +
+                    $"{ex.LoaderExceptions.FirstOrDefault()?.Message}", ex);
+            }
         }
 
         private static TestMethodResult HandleTestException(
@@ -406,7 +455,6 @@ namespace FrameworkTesting.Testing
                 $"{ex.GetType().Name}: {ex.Message}", ex);
         }
 
-
         private void IncrementCounter(TestStatus status)
         {
             switch (status)
@@ -435,13 +483,12 @@ namespace FrameworkTesting.Testing
         {
             var parameters = method.GetParameters();
 
-            if (parameters.Length > 0 && parameters[^1].ParameterType == typeof(CancellationToken))
+            if (parameters.Length > 0 &&
+                parameters[^1].ParameterType == typeof(CancellationToken))
             {
-                int originalLength = args?.Length ?? 0;
-                var extendedArgs = new object?[originalLength + 1];
-
+                int originalLength  = args?.Length ?? 0;
+                var extendedArgs    = new object?[originalLength + 1];
                 if (args is not null) Array.Copy(args, extendedArgs, originalLength);
-
                 extendedArgs[^1] = cancellationToken;
                 args = extendedArgs;
             }
