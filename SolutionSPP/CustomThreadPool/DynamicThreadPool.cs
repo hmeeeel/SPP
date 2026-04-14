@@ -18,7 +18,11 @@ namespace CustomThreadPool
 
         private readonly object _consoleLock = new();
         public event Action<ThreadPoolStats>? StatsUpdated;
+        private readonly List<Thread> _workerThreads = new();
+        private readonly object _threadListLock = new();
+        private readonly Dictionary<int, bool>     _threadBusy  = new(); // true = выполняет задачу
 
+        private readonly object _monitorSignal = new();
         public DynamicThreadPool(ThreadPoolOptions? options = null)
         {
             _options = options ?? new ThreadPoolOptions();
@@ -68,27 +72,44 @@ namespace CustomThreadPool
         public void Shutdown(int waitMs = 15_000)
         {
             _shutdown = true;
-
-            // Разбудить всех спящих воркеров, чтобы они увидели shutdown
+ 
+            // будим всех спящих рабочих потоков
             lock (_queueLock) Monitor.PulseAll(_queueLock);
-
+ 
+            // будим MonitorLoop
+            lock (_monitorSignal) Monitor.Pulse(_monitorSignal);
+ 
+            // снимок списка живых потоков
+            List<Thread> threads;
+            lock (_threadListLock)
+                threads = new List<Thread>(_workerThreads);
+ 
+            // Join каждого потока с учётом общего дедлайна
             var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
-            while (DateTime.UtcNow < deadline)
+            foreach (var t in threads)
             {
-                if (GetQueueLength() == 0 && _activeThreads == 0) break;
-                Thread.Sleep(50);
+                int remaining = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                if (remaining <= 0) break;
+                t.Join(remaining);
             }
-        }
 
+            int monRemaining = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+            if (monRemaining > 0)
+                _monitorThread.Join(monRemaining);
+        }
+ 
         public void Dispose() => Shutdown();
 
         //  РАБОЧИЙ ПОТОК
         private void AddWorkerThread(string? reason = null)
         {
-            // Проверка лимита (без лока - счётчик Interlocked)
-            if (_activeThreads >= _options.MaxThreads) return;
+          //  // Проверка лимита (без лока - счётчик Interlocked)
+          // if (_activeThreads >= _options.MaxThreads) return;
 
+            // 1 атомарно увеличиваем счётчик
             int newCount = Interlocked.Increment(ref _activeThreads);
+ 
+            // 2 проверяем не превысили ли лимит
             if (newCount > _options.MaxThreads)
             {
                 // Откатываем-перескочили лимит в гонке
@@ -102,13 +123,19 @@ namespace CustomThreadPool
                 IsBackground = true,
                 Name         = $"DynPool-Worker-{Environment.CurrentManagedThreadId}"
             };
-
+ 
+            // Регистрируем поток ДО Start
+            lock (_threadListLock)
+                _workerThreads.Add(thread);
+ 
             lock (_heartbeatLock)
             {
                 _heartbeat[thread.ManagedThreadId]  = DateTime.UtcNow;
                 _threadCts[thread.ManagedThreadId]  = cts;
+                // изначально поток НЕ занят задачей
+                _threadBusy[thread.ManagedThreadId] = false;
             }
-
+ 
             if (reason is not null)
                 SafeLog($"[POOL] +Поток (причина: {reason}). Активно: {_activeThreads}");
 
@@ -245,6 +272,7 @@ namespace CustomThreadPool
                     oldest = _queue.Peek();
             }
 
+            // проверка ст зад если дольше ScaleUpWaitMs и лимит не достигнут
             if (oldest is not null
                 && oldest.WaitMs > _options.ScaleUpWaitMs
                 && _activeThreads < _options.MaxThreads)
