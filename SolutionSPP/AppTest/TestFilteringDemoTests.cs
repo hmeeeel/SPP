@@ -1,41 +1,28 @@
-/*using FrameworkTesting.Assert;
+using FrameworkTesting.Assert;
 using FrameworkTesting.Attributes;
 using FrameworkTesting.Filtering;
 using System.Reflection;
 
 namespace AppTest.Tests
 {
-    /// <summary>
-    /// Тесты для демонстрации фильтрации тестов с помощью делегатов.
-    /// Требование: Механизм выборочного запуска тестов на основе свойств
-    /// (категорий, приоритетов, автора) с помощью делегатов.
-    /// </summary>
     [TestClass(Category = "Filtering", Description = "Демонстрация фильтрации через делегаты")]
     public class TestFilteringDemoTests
     {
-        /// <summary>
-        /// Демонстрация базовой фильтрации по категории.
-        /// </summary>
         [TestMethod("Фильтр по категории")]
         public void FilterDemo_ByCategory()
         {
-            // Получаем все тестовые классы из текущей сборки
             var assembly = Assembly.GetExecutingAssembly();
             var allTestClasses = assembly.GetTypes()
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
             Console.WriteLine($"Всего тестовых классов: {allTestClasses.Count}");
-
-            // Создаём фильтр для категории "Performance"
             TestFilterDelegate filter = TestFilters.ByCategory("Performance");
 
-            // Применяем фильтр
             var filteredClasses = allTestClasses.ApplyClassFilter(filter).ToList();
 
             Console.WriteLine($"Классов с категорией 'Performance': {filteredClasses.Count}");
 
-            // Проверяем, что фильтр работает
             foreach (var cls in filteredClasses)
             {
                 var attr = cls.GetCustomAttribute<TestClassAttribute>();
@@ -44,9 +31,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация фильтрации по имени класса.
-        /// </summary>
         [TestMethod("Фильтр по имени класса")]
         public void FilterDemo_ByClassName()
         {
@@ -55,7 +39,7 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Фильтр: классы, содержащие "Async" в имени
+
             TestFilterDelegate filter = TestFilters.ByClassName("Async");
 
             var filteredClasses = allTestClasses.ApplyClassFilter(filter).ToList();
@@ -70,9 +54,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация фильтрации по имени метода.
-        /// </summary>
         [TestMethod("Фильтр по имени метода")]
         public void FilterDemo_ByMethodName()
         {
@@ -86,7 +67,6 @@ namespace AppTest.Tests
 
             Console.WriteLine($"Всего методов в SlowTests: {allMethods.Count}");
 
-            // Фильтр: методы с "Timeout" в имени
             TestFilterDelegate filter = TestFilters.ByMethodName("Timeout");
 
             var filteredMethods = allMethods.ApplyFilter(testClass, filter).ToList();
@@ -101,9 +81,7 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация фильтрации параметризованных тестов.
-        /// </summary>
+
         [TestMethod("Фильтр параметризованных тестов")]
         public void FilterDemo_ParameterizedOnly()
         {
@@ -115,7 +93,6 @@ namespace AppTest.Tests
                 .Where(m => m.GetCustomAttribute<TestMethodAttribute>() != null)
                 .ToList();
 
-            // Фильтр: только параметризованные тесты
             TestFilterDelegate filter = TestFilters.Parameterized();
 
             var filteredMethods = allMethods.ApplyFilter(testClass, filter).ToList();
@@ -131,9 +108,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация фильтрации тестов с Timeout.
-        /// </summary>
         [TestMethod("Фильтр тестов с Timeout")]
         public void FilterDemo_WithTimeout()
         {
@@ -145,7 +119,6 @@ namespace AppTest.Tests
                 .Where(m => m.GetCustomAttribute<TestMethodAttribute>() != null)
                 .ToList();
 
-            // Фильтр: только тесты с атрибутом Timeout
             TestFilterDelegate filter = TestFilters.WithTimeout();
 
             var filteredMethods = allMethods.ApplyFilter(testClass, filter).ToList();
@@ -160,9 +133,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация комбинации фильтров через AND.
-        /// </summary>
         [TestMethod("Комбинация фильтров через AND")]
         public void FilterDemo_CombineWithAnd()
         {
@@ -171,7 +141,6 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Комбинированный фильтр: категория "Performance" И не игнорируемые
             TestFilterDelegate filter = TestFilters.And(
                 TestFilters.ByCategory("Performance"),
                 TestFilters.NotIgnored()
@@ -191,9 +160,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация комбинации фильтров через OR.
-        /// </summary>
         [TestMethod("Комбинация фильтров через OR")]
         public void FilterDemo_CombineWithOr()
         {
@@ -202,7 +168,6 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Комбинированный фильтр: категория "Performance" ИЛИ "Advanced"
             TestFilterDelegate filter = TestFilters.Or(
                 TestFilters.ByCategory("Performance"),
                 TestFilters.ByCategory("Advanced")
@@ -221,9 +186,7 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация инверсии фильтра (NOT).
-        /// </summary>
+
         [TestMethod("Инверсия фильтра через NOT")]
         public void FilterDemo_NotFilter()
         {
@@ -235,7 +198,6 @@ namespace AppTest.Tests
                 .Where(m => m.GetCustomAttribute<TestMethodAttribute>() != null)
                 .ToList();
 
-            // Инверсия: НЕ параметризованные тесты
             TestFilterDelegate filter = TestFilters.Not(TestFilters.Parameterized());
 
             var filteredMethods = allMethods.ApplyFilter(testClass, filter).ToList();
@@ -250,9 +212,7 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация Fluent API для построения фильтров.
-        /// </summary>
+
         [TestMethod("Fluent API для построения фильтров")]
         public void FilterDemo_FluentBuilder()
         {
@@ -261,7 +221,6 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Построение фильтра через Fluent API
             var filter = new TestFilterBuilder()
                 .WithCategory("Performance")
                 .ExcludeIgnored()
@@ -279,9 +238,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация пользовательского фильтра.
-        /// </summary>
         [TestMethod("Пользовательский фильтр через Custom")]
         public void FilterDemo_CustomFilter()
         {
@@ -293,7 +249,6 @@ namespace AppTest.Tests
                 .Where(m => m.GetCustomAttribute<TestMethodAttribute>() != null)
                 .ToList();
 
-            // Пользовательский фильтр: методы, начинающиеся с "Slow_"
             TestFilterDelegate filter = TestFilters.Custom(ctx => 
                 ctx.MethodName.StartsWith("Slow_", StringComparison.Ordinal));
 
@@ -309,9 +264,7 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация сложного составного фильтра.
-        /// </summary>
+
         [TestMethod("Сложный составной фильтр")]
         public void FilterDemo_ComplexFilter()
         {
@@ -320,8 +273,7 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Сложный фильтр:
-            // (Категория = "Performance" ИЛИ имя содержит "Slow") И НЕ игнорируемые
+
             TestFilterDelegate filter = TestFilters.And(
                 TestFilters.Or(
                     TestFilters.ByCategory("Performance"),
@@ -351,9 +303,6 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация фильтрации по нескольким категориям.
-        /// </summary>
         [TestMethod("Фильтр по нескольким категориям")]
         public void FilterDemo_MultipleCategories()
         {
@@ -362,7 +311,6 @@ namespace AppTest.Tests
                 .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
                 .ToList();
 
-            // Фильтр: категории Performance, Advanced, Events, Filtering
             TestFilterDelegate filter = TestFilters.ByCategories(
                 "Performance", "Advanced", "Events", "Filtering");
 
@@ -381,9 +329,7 @@ namespace AppTest.Tests
             }
         }
 
-        /// <summary>
-        /// Демонстрация применения фильтра к методам конкретного класса.
-        /// </summary>
+
         [TestMethod("Применение фильтра к методам класса")]
         public void FilterDemo_FilterMethodsInClass()
         {
@@ -397,19 +343,16 @@ namespace AppTest.Tests
 
             Console.WriteLine($"\nВсего методов в {testClass.Name}: {allMethods.Count}");
 
-            // Фильтр 1: Параметризованные
             var parameterized = allMethods
                 .ApplyFilter(testClass, TestFilters.Parameterized())
                 .ToList();
             Console.WriteLine($"  Параметризованных: {parameterized.Count}");
 
-            // Фильтр 2: С Timeout
             var withTimeout = allMethods
                 .ApplyFilter(testClass, TestFilters.WithTimeout())
                 .ToList();
             Console.WriteLine($"  С Timeout: {withTimeout.Count}");
 
-            // Фильтр 3: Ожидающие исключение
             var expectsException = allMethods
                 .ApplyFilter(testClass, TestFilters.ExpectsException())
                 .ToList();
@@ -418,4 +361,4 @@ namespace AppTest.Tests
             Assert.GreaterThan(allMethods.Count, 0, "Должны быть методы для фильтрации");
         }
     }
-}*/
+}
