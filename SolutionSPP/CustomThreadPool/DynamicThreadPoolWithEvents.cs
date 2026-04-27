@@ -359,11 +359,13 @@ namespace CustomThreadPool
 
                 int qLen = GetQueueLength();
 
+                //1
                 if (qLen > 0 && _idleThreads == 0 && _activeThreads < _options.MaxThreads)
                 {
                     AddWorkerThread($"очередь={qLen}, idle=0");
                 }
 
+                //2
                 CheckLongWaitingTasks();
                 ReplaceHungThreads(qLen);
 

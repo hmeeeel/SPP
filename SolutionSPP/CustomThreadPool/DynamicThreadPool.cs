@@ -38,8 +38,6 @@ namespace CustomThreadPool
             _monitorThread.Start();
         }
 
-
-        // Поставить задачу в очередь
         public void Enqueue(Action task, string name = "")
         {
             if (_shutdown)
@@ -51,7 +49,6 @@ namespace CustomThreadPool
             {
                 _queue.Enqueue(item);
                 Interlocked.Increment(ref _totalEnqueued);
-                // Будим ОДИН ожидающий поток (или монитор добудит ещё)
                 Monitor.Pulse(_queueLock);
             }
         }
@@ -68,23 +65,18 @@ namespace CustomThreadPool
             Timestamp      = DateTime.UtcNow
         };
 
-        // Дождаться завершения всех задач и остановить пул
         public void Shutdown(int waitMs = 15_000)
         {
             _shutdown = true;
  
-            // будим всех спящих рабочих потоков
             lock (_queueLock) Monitor.PulseAll(_queueLock);
  
-            // будим MonitorLoop
             lock (_monitorSignal) Monitor.Pulse(_monitorSignal);
  
-            // снимок списка живых потоков
             List<Thread> threads;
             lock (_threadListLock)
                 threads = new List<Thread>(_workerThreads);
  
-            // Join каждого потока с учётом общего дедлайна
             var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
             foreach (var t in threads)
             {
@@ -100,19 +92,11 @@ namespace CustomThreadPool
  
         public void Dispose() => Shutdown();
 
-        //  РАБОЧИЙ ПОТОК
         private void AddWorkerThread(string? reason = null)
         {
-          //  // Проверка лимита (без лока - счётчик Interlocked)
-          // if (_activeThreads >= _options.MaxThreads) return;
-
-            // 1 атомарно увеличиваем счётчик
             int newCount = Interlocked.Increment(ref _activeThreads);
- 
-            // 2 проверяем не превысили ли лимит
             if (newCount > _options.MaxThreads)
             {
-                // Откатываем-перескочили лимит в гонке
                 Interlocked.Decrement(ref _activeThreads);
                 return;
             }
@@ -124,7 +108,7 @@ namespace CustomThreadPool
                 Name         = $"DynPool-Worker-{Environment.CurrentManagedThreadId}"
             };
  
-            // Регистрируем поток ДО Start
+            // Регистрируем поток 
             lock (_threadListLock)
                 _workerThreads.Add(thread);
  
@@ -132,7 +116,6 @@ namespace CustomThreadPool
             {
                 _heartbeat[thread.ManagedThreadId]  = DateTime.UtcNow;
                 _threadCts[thread.ManagedThreadId]  = cts;
-                // изначально поток НЕ занят задачей
                 _threadBusy[thread.ManagedThreadId] = false;
             }
  
@@ -142,8 +125,6 @@ namespace CustomThreadPool
             thread.Start();
         }
 
-        // Основной цикл рабочего потока
-        // Monitor.Wait атомарно освобождает лок и засыпает - нет промежутка, в котором Pulse мог бы потеряться
         private void WorkerLoop(CancellationToken cancelToken)
         {
             int tid = Thread.CurrentThread.ManagedThreadId;
@@ -157,17 +138,12 @@ namespace CustomThreadPool
                 {
                     Interlocked.Increment(ref _idleThreads);
 
-                    // Ждём, пока есть работа или пришёл сигнал завершения
                     while (_queue.Count == 0 && !_shutdown && !cancelToken.IsCancellationRequested)
                     {
-                        // Monitor.Wait: атомарно отпускает _queueLock и засыпает
-                        // Возвращает true — разбужен Pulse/PulseAll
-                        // false — истёк IdleTimeoutMs (адаптивное сжатие)
                         bool signaled = Monitor.Wait(_queueLock, _options.IdleTimeoutMs);
 
                         if (!signaled && _activeThreads > _options.MinThreads)
                         {
-                            // Поток простоял без работы — корректно завершаемся
                             Interlocked.Decrement(ref _idleThreads);
                             shouldExit = true;
                             break;
@@ -189,18 +165,17 @@ namespace CustomThreadPool
                 if (item is null)
                     continue;
 
-                // Обновляем heartbeat: поток начал выполнение задачи
+                // поток начал выполнение задачи
                 lock (_heartbeatLock)
                     _heartbeat[tid] = DateTime.UtcNow;
 
                 ExecuteItem(item, tid);
 
-                // После задачи — сбрасываем heartbeat (поток снова свободен)
+                // сброс - поток  свободен
                 lock (_heartbeatLock)
                     _heartbeat[tid] = DateTime.UtcNow;
             }
 
-            // Очистка ресурсов при завершении потока
             lock (_heartbeatLock)
             {
                 _heartbeat.Remove(tid);
@@ -245,19 +220,17 @@ namespace CustomThreadPool
 
                 int qLen = GetQueueLength();
 
-                // 1. Масштабирование вверх: задачи ждут, idle-потоков нет, есть лимит
+                //1
                 if (qLen > 0 && _idleThreads == 0 && _activeThreads < _options.MaxThreads)
                 {
                     AddWorkerThread($"очередь={qLen}, idle=0");
                 }
 
-                // 2. Масштабирование вверх: задача долго ждёт в очереди
+                //2
                 CheckLongWaitingTasks();
 
-                // 3. Замена зависших потоков
                 ReplaceHungThreads(qLen);
 
-                // 4. Публикуем статистику
                 var stats = GetStats();
                 StatsUpdated?.Invoke(stats);
             }
@@ -281,9 +254,10 @@ namespace CustomThreadPool
             }
         }
 
+        // Поток считается зависшим, если не обновлял heartbeat дольше HangThresholdMs при непустой очереди
         private void ReplaceHungThreads(int queueLen)
         {
-            if (queueLen == 0) return; // зависание не критично, если нет работы
+            if (queueLen == 0) return;
 
             List<(int tid, CancellationTokenSource cts)> hung = [];
 
@@ -292,7 +266,6 @@ namespace CustomThreadPool
                 var now = DateTime.UtcNow;
                 foreach (var (tid, lastSeen) in _heartbeat)
                 {
-                    // Поток считается зависшим, если не обновлял heartbeat дольше HangThresholdMs при непустой очереди
                     if ((now - lastSeen).TotalMilliseconds > _options.HangThresholdMs
                         && _threadCts.TryGetValue(tid, out var cts))
                     {
@@ -304,7 +277,7 @@ namespace CustomThreadPool
             foreach (var (tid, cts) in hung)
             {
                 SafeLog($"[POOL] Поток {tid} завис — отменяем и заменяем");
-                try { cts.Cancel(); } catch { /* уже отменён */ }
+                cts.Cancel();
                 AddWorkerThread($"замена зависшего {tid}");
             }
         }
