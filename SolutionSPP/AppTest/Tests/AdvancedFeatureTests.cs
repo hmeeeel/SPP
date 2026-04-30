@@ -3,8 +3,6 @@ using App.Check;
 using App.Engine;
 using FrameworkTesting.Assert;
 using FrameworkTesting.Attributes;
-using FrameworkTesting.DataProviders;
-using System.Collections.Generic;
 
 namespace AppTest.Tests
 {

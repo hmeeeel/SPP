@@ -107,7 +107,6 @@ namespace FrameworkTesting.Testing
             return allResults;
         }
 
-
         public async Task<TestClassResult> RunClassAsync(Type testClass)
         {
             var classAttr     = testClass.GetCustomAttribute<TestClassAttribute>()!;

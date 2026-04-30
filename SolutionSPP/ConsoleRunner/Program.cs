@@ -1,4 +1,4 @@
-﻿﻿using CustomThreadPool;
+﻿using CustomThreadPool;
 using CustomThreadPool.Events;
 using FrameworkTesting.Testing;
 using FrameworkTesting.DataProviders;
@@ -8,8 +8,10 @@ using System.Diagnostics;
 using System.Reflection;
 
 
+
 static void DemonstrateIterators()
 {
+    Console.Clear();
     Console.WriteLine("*******************************************************");
     Console.WriteLine("  1. ПРОСТОЙ ИТЕРАТОР: Граничные значения возраста");
     Console.WriteLine("*******************************************************");
@@ -68,11 +70,13 @@ static void DemonstrateIterators()
     Console.WriteLine($"   {count}");
     Console.WriteLine();
     
-    Console.WriteLine();
+    Console.WriteLine("\nНажмите любую клавишу для возврата в меню...");
+    Console.ReadKey(true);
 }
 
 static async Task DemonstrateEvents()
 {
+    Console.Clear();
     Console.WriteLine("*******************************************************");
     Console.WriteLine("  СОБЫТИЯ: Отслеживание жизненного цикла пула");
     Console.WriteLine("*******************************************************");
@@ -94,7 +98,6 @@ static async Task DemonstrateEvents()
     
     Console.WriteLine("  Подписка на события:");
     
-    // 1. Общее событие
     pool.LifecycleEvent += (sender, e) =>
     {
         lock (lockObj)
@@ -104,7 +107,6 @@ static async Task DemonstrateEvents()
     };
     Console.WriteLine("   LifecycleEvent - все события пула");
     
-    // 2. Специализированные события
     pool.ThreadCreatedEvent += (sender, e) =>
     {
         lock (lockObj)
@@ -147,14 +149,12 @@ static async Task DemonstrateEvents()
     Console.WriteLine();
     Console.WriteLine("  Выполнение задач:");
     
-    // Нормальные задачи
     for (int i = 0; i < 5; i++)
     {
         pool.Enqueue(() => Thread.Sleep(200), $"Task{i}");
         Console.WriteLine($"    Поставлена в очередь: Task{i}");
     }
     
-    // Задача с ошибкой
     pool.Enqueue(() => throw new InvalidOperationException("Тестовая ошибка"), "ErrorTask");
     Console.WriteLine($"    Поставлена в очередь: ErrorTask (с ошибкой)");
     
@@ -181,14 +181,15 @@ static async Task DemonstrateEvents()
         }
     }
     
-    Console.WriteLine();
-    Console.WriteLine();
-    
     pool.Shutdown(2000);
+    
+    Console.WriteLine("\nНажмите любую клавишу для возврата в меню...");
+    Console.ReadKey(true);
 }
 
 static void DemonstrateFiltering(Assembly testAssembly)
 {
+    Console.Clear();
     Console.WriteLine("*******************************************************");
     Console.WriteLine("  ДЕЛЕГАТЫ: Фильтрация тестов");
     Console.WriteLine("*******************************************************");
@@ -215,7 +216,7 @@ static void DemonstrateFiltering(Assembly testAssembly)
     Console.WriteLine("   ФИЛЬТР ПО ИМЕНИ КЛАССА: содержит 'Advanced'");
     TestFilterDelegate filter2 = TestFilters.ByClassName("Advanced");
     var advanced = allTestClasses.ApplyClassFilter(filter2).ToList();
-    Console.WriteLine($"  ✓ Найдено классов: {advanced.Count}");
+    Console.WriteLine($"   Найдено классов: {advanced.Count}");
     foreach (var cls in advanced)
     {
         Console.WriteLine($"    - {cls.Name}");
@@ -295,54 +296,58 @@ static void DemonstrateFiltering(Assembly testAssembly)
         }
     }
     
+    Console.WriteLine("\nНажмите любую клавишу для возврата в меню...");
+    Console.ReadKey(true);
+}
+
+static async Task RunTestsByCategory(Assembly testAssembly, string category)
+{
+    Console.Clear();
+    Console.WriteLine($"*******************************************************");
+    Console.WriteLine($"       ЗАПУСК ТЕСТОВ КАТЕГОРИИ: {category}");
+    Console.WriteLine($"*******************************************************");
     Console.WriteLine();
-    Console.WriteLine();
+
+
+    var filter = TestFilters.ByCategory(category);
+    var filteredClasses = testAssembly.GetTypes()
+        .Where(t => t.GetCustomAttribute<TestClassAttribute>() != null)
+        .ApplyClassFilter(filter)
+        .ToList();
+
+    if (filteredClasses.Count == 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"Классы с категорией '{category}' не найдены!");
+        Console.ResetColor();
+        Console.WriteLine("\nНажмите любую клавишу для возврата в меню...");
+        Console.ReadKey(true);
+        return;
+    }
+
+    var options = new TestRunnerOptions 
+    { 
+        MaxDegreeOfParallelism = 1,
+        ParallelizeMethods = false 
+    };
+    var runner = new TestRunner(options);
+
+
+    var categoryResults = new List<TestClassResult>();
+    foreach (var testClass in filteredClasses)
+    {
+        var classResult = await runner.RunClassAsync(testClass);
+        categoryResults.Add(classResult);
+    }
+
+    Console.WriteLine("Нажмите любую клавишу для возврата в меню...");
+    Console.ReadKey(true);
 }
 
 
-try
+static async Task RunAllTests(Assembly testAssembly)
 {
-    string? assemblyPath = args.FirstOrDefault(a => !a.StartsWith("--"));
-    Assembly testAssembly;
-    if (assemblyPath is not null)
-    {
-        Console.WriteLine($"Загрузка сборки: {assemblyPath}");
-        testAssembly = Assembly.LoadFrom(assemblyPath);
-    }
-    else
-    {
-        testAssembly = Assembly.Load("AppTest");
-    }
-    Console.WriteLine();
-    
-    Console.WriteLine("*******************************************************");
-    Console.WriteLine("     ДЕМОНСТРАЦИЯ ТРЕХ НОВЫХ ТРЕБОВАНИЙ               ");
-    Console.WriteLine("  1. Итераторы (yield return)                         ");
-    Console.WriteLine("  2. События (events)                                 ");
-    Console.WriteLine("  3. Фильтрация делегатами (delegates)                ");
-    Console.WriteLine("*******************************************************");
-    Console.WriteLine();
-    Console.WriteLine("Нажмите любую клавишу для начала демонстрации...");
-    Console.ReadKey(true);
     Console.Clear();
-    
-
-    DemonstrateIterators();
-    Console.WriteLine("Нажмите любую клавишу для перехода к следующей демонстрации...");
-    Console.ReadKey(true);
-    Console.Clear();
-    
-    await DemonstrateEvents();
-    Console.WriteLine("Нажмите любую клавишу для перехода к следующей демонстрации...");
-    Console.ReadKey(true);
-    Console.Clear();
-    
-
-    DemonstrateFiltering(testAssembly);
-    Console.WriteLine("Нажмите любую клавишу для запуска тестов...");
-    Console.ReadKey(true);
-    Console.Clear();
-    
     Console.WriteLine("*******************************************************");
     Console.WriteLine("                ПОСЛЕДОВАТЕЛЬНЫЙ ЗАПУСК                ");
     Console.WriteLine("*******************************************************");
@@ -409,7 +414,7 @@ try
     Console.WriteLine();
     
     Console.WriteLine("*******************************************************");
-    Console.WriteLine("                  СРАВНЕНИЕ ВРЕМЁН                    ");
+    Console.WriteLine("                  СРАВНЕНИЕ ВРЕМЁН                     ");
     Console.WriteLine("*******************************************************");
     Console.WriteLine($"  Последовательно:      {sw1.ElapsedMilliseconds} мс");
     Console.WriteLine($"  Параллельно (Task):   {sw2.ElapsedMilliseconds} мс");
@@ -418,20 +423,97 @@ try
     if (sw2.ElapsedMilliseconds < sw1.ElapsedMilliseconds)
     {
         double su2 = (double)sw1.ElapsedMilliseconds / sw2.ElapsedMilliseconds;
-        Console.WriteLine($"  Ускорение Task.Run:   ×{su2:F2}");
+        Console.WriteLine($"  Ускорение Task.Run:   *{su2:F2}");
     }
     if (sw3.ElapsedMilliseconds < sw1.ElapsedMilliseconds)
     {
         double su3 = (double)sw1.ElapsedMilliseconds / sw3.ElapsedMilliseconds;
-        Console.WriteLine($"  Ускорение DynPool:    ×{su3:F2}");
+        Console.WriteLine($"  Ускорение DynPool:    *{su3:F2}");
     }
 
-    int failed = results3.Sum(r => r.Failed + r.Errors);
-    return failed == 0 ? 0 : 1;
+    Console.WriteLine("\n\nНажмите любую клавишу для возврата в меню...");
+    Console.ReadKey(true);
+}
+
+
+static void ShowMenu()
+{
+    Console.Clear();
+    Console.WriteLine("  1. Демонстрация ИТЕРАТОРОВ (yield return)");
+    Console.WriteLine("  2. Демонстрация СОБЫТИЙ пула потоков (events)");
+    Console.WriteLine("  3. Демонстрация ФИЛЬТРАЦИИ тестов (delegates)");
+    Console.WriteLine("  4. Запуск тестов EXPRESSION TREES");
+    Console.WriteLine("  5. Запуск ВСЕХ тестов (3 режима + сравнение)");
+    Console.WriteLine("  0. Выход");
+    Console.WriteLine();
+}
+
+try
+{
+    string? assemblyPath = args.FirstOrDefault(a => !a.StartsWith("--"));
+    Assembly testAssembly;
+    
+    if (assemblyPath is not null)
+    {
+        Console.WriteLine($"Загрузка сборки: {assemblyPath}");
+        testAssembly = Assembly.LoadFrom(assemblyPath);
+    }
+    else
+    {
+        testAssembly = Assembly.Load("AppTest");
+    }
+
+    bool exit = false;
+    
+    while (!exit)
+    {
+        ShowMenu();
+        string? choice = Console.ReadLine();
+        
+        switch (choice)
+        {
+            case "1":
+                DemonstrateIterators();
+                break;
+                
+            case "2":
+                await DemonstrateEvents();
+                break;
+                
+            case "3":
+                DemonstrateFiltering(testAssembly);
+                break;
+                
+            case "4":
+                await RunTestsByCategory(testAssembly, "ExpressionTrees");
+                break;
+                
+            case "5":
+                await RunAllTests(testAssembly);
+                break;
+                
+            case "0":
+                exit = true;
+                Console.Clear();
+                Console.WriteLine("ПОКА!");
+
+                break;
+                
+            default:
+                Console.Clear();
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Неверный выбор! Нажмите любую клавишу...");
+                Console.ResetColor();
+                Console.ReadKey(true);
+                break;
+        }
+    }
+    
+    return 0;
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"Критическая ошибка тест-раннера: {ex.Message}");
+    Console.Error.WriteLine($"Критическая ошибка: {ex.Message}");
     Console.Error.WriteLine(ex.StackTrace);
     return 2;
 }

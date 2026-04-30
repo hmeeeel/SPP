@@ -6,28 +6,27 @@ namespace FrameworkTesting.DataProviders
     {
         public static IEnumerable<object[]> AgeBoundaryValues()
         {
-            // Граничные случаи для возраста
-            yield return new object[] { 0, false };      // Минимальное значение
-            yield return new object[] { 17, false };     // Ниже порога v2
-            yield return new object[] { 18, true };      // Порог v2 (>=18)
-            yield return new object[] { 19, true };      // Выше порога v2
-            yield return new object[] { 20, true };      // Ниже порога v1
-            yield return new object[] { 21, true };      // Порог v1 (>=21)
-            yield return new object[] { 25, true };      // Нормальное значение
-            yield return new object[] { 65, true };      // Старший возраст
-            yield return new object[] { 100, true };     // Экстремальное значение
-            yield return new object[] { -1, false };     // Некорректное значение
+            yield return new object[] { 0, false }; 
+            yield return new object[] { 17, false };   
+            yield return new object[] { 18, true };  
+            yield return new object[] { 19, true };   
+            yield return new object[] { 20, true };     
+            yield return new object[] { 21, true };
+            yield return new object[] { 25, true };
+            yield return new object[] { 65, true };   
+            yield return new object[] { 100, true };
+            yield return new object[] { -1, false }; 
         }
 
         public static IEnumerable<object[]> IncomeBoundaryValues()
         {
-            yield return new object[] { 0.0, false };           // Нулевой доход
-            yield return new object[] { 49_999.0, false };      // Ниже порога
-            yield return new object[] { 50_000.0, false };      // Точно на пороге (> 50k)
-            yield return new object[] { 50_001.0, true };       // Выше порога
-            yield return new object[] { 100_000.0, true };      // Нормальный доход
-            yield return new object[] { 1_000_000.0, true };    // Высокий доход
-            yield return new object[] { -1000.0, false };       // Некорректное значение
+            yield return new object[] { 0.0, false };    
+            yield return new object[] { 49_999.0, false };  
+            yield return new object[] { 50_000.0, false }; 
+            yield return new object[] { 50_001.0, true };    
+            yield return new object[] { 100_000.0, true };
+            yield return new object[] { 1_000_000.0, true };  
+            yield return new object[] { -1000.0, false };  
         }
 
         public static IEnumerable<object[]> CreditScenarios()
@@ -42,7 +41,6 @@ namespace FrameworkTesting.DataProviders
                 true         // ShouldBeApproved
             };
 
-            // Низкий доход
             yield return new object[]
             {
                 "Низкий доход",
@@ -57,11 +55,10 @@ namespace FrameworkTesting.DataProviders
                 "Высокая долговая нагрузка",
                 25,
                 80_000.0,
-                100_000.0,  // Долг > 50% дохода
+                100_000.0,
                 false
             };
 
-            // Мал по возрасту
             yield return new object[]
             {
                 "Недостаточный возраст",

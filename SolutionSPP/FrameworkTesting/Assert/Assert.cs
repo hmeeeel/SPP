@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -186,7 +187,186 @@ namespace FrameworkTesting.Assert
                 throw new AssertException(msg, nameof(AreEqualWithDelta), expected, actual);
             }
         }
+        public static void That(Expression<Func<bool>> expression, string? message = null)
+            {
+                if (expression == null) throw new ArgumentNullException(nameof(expression));
+
+                var compiled = expression.Compile();
+                bool result = compiled();
+
+                if (!result)
+                {
+                    var analysis = AnalyzeExpression(expression.Body);
+                    
+                    var errorMessage = message != null 
+                        ? $"{message}\n{analysis}" 
+                        : analysis;
+                    
+                    throw new AssertException(errorMessage, nameof(That));
+                }
+            }
+
+            private static string AnalyzeExpression(Expression expr)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("ДЕТАЛЬНЫЙ АНАЛИЗ:");
+                sb.AppendLine($"Выражение: {expr}");
+                sb.AppendLine();
+                
+                AnalyzeNode(expr, sb, indent: 0);
+                
+                return sb.ToString();
+            }
+
+            private static void AnalyzeNode(Expression node, StringBuilder sb, int indent)
+            {
+                string indentation = new string(' ', indent * 2);
+                
+                switch (node.NodeType)
+                {
+                    case ExpressionType.Equal:
+                    case ExpressionType.NotEqual:
+                    case ExpressionType.LessThan:
+                    case ExpressionType.LessThanOrEqual:
+                    case ExpressionType.GreaterThan:
+                    case ExpressionType.GreaterThanOrEqual:
+                    case ExpressionType.AndAlso:
+                    case ExpressionType.OrElse:
+                    case ExpressionType.Add:
+                    case ExpressionType.Subtract:
+                    case ExpressionType.Multiply:
+                    case ExpressionType.Divide:
+                        AnalyzeBinaryExpression((BinaryExpression)node, sb, indent, indentation);
+                        break;
+
+                    case ExpressionType.Not:
+                        AnalyzeUnaryExpression((UnaryExpression)node, sb, indent, indentation);
+                        break;
+
+                    case ExpressionType.MemberAccess:
+                        AnalyzeMemberExpression((MemberExpression)node, sb, indentation);
+                        break;
+
+                    case ExpressionType.Constant:
+                        AnalyzeConstantExpression((ConstantExpression)node, sb, indentation);
+                        break;
+
+                    case ExpressionType.Call:
+                        AnalyzeMethodCallExpression((MethodCallExpression)node, sb, indent, indentation);
+                        break;
+
+                    default:
+                        sb.AppendLine($"{indentation}[{node.NodeType}] {node}");
+                        break;
+                }
+            }
+
+            private static void AnalyzeBinaryExpression(BinaryExpression binary, StringBuilder sb, int indent, string indentation)
+            {
+                string operatorSymbol = binary.NodeType switch
+                {
+                    ExpressionType.Equal => "==",
+                    ExpressionType.NotEqual => "!=",
+                    ExpressionType.LessThan => "<",
+                    ExpressionType.LessThanOrEqual => "<=",
+                    ExpressionType.GreaterThan => ">",
+                    ExpressionType.GreaterThanOrEqual => ">=",
+                    ExpressionType.AndAlso => "&&",
+                    ExpressionType.OrElse => "||",
+                    ExpressionType.Add => "+",
+                    ExpressionType.Subtract => "-",
+                    ExpressionType.Multiply => "*",
+                    ExpressionType.Divide => "/",
+                    _ => binary.NodeType.ToString()
+                };
+
+                sb.AppendLine($"{indentation}БИНАРНАЯ ОПЕРАЦИЯ: {operatorSymbol}");
+                
+                sb.AppendLine($"{indentation}|- ЛЕВЫЙ:");
+                AnalyzeNode(binary.Left, sb, indent + 1);
+                object? leftValue = EvaluateExpression(binary.Left);
+                sb.AppendLine($"{indentation}|  *- Значение: {FormatValue(leftValue)}");
+                
+                sb.AppendLine($"{indentation}*- ПРАВЫЙ:");
+                AnalyzeNode(binary.Right, sb, indent + 1);
+                object? rightValue = EvaluateExpression(binary.Right);
+                sb.AppendLine($"{indentation}   *- Значение: {FormatValue(rightValue)}");
+                
+                object? result = EvaluateExpression(binary);
+                sb.AppendLine($"{indentation}РЕЗУЛЬТАТ: {FormatValue(leftValue)} {operatorSymbol} {FormatValue(rightValue)} = {FormatValue(result)}");
+            }
 
 
+            private static void AnalyzeUnaryExpression(UnaryExpression unary, StringBuilder sb, int indent, string indentation)
+            {
+                string operatorSymbol = unary.NodeType == ExpressionType.Not ? "!" : unary.NodeType.ToString();
+                
+                sb.AppendLine($"{indentation}УНАРНАЯ ОПЕРАЦИЯ: {operatorSymbol}");
+                sb.AppendLine($"{indentation}└─ ОПЕРАНД:");
+                AnalyzeNode(unary.Operand, sb, indent + 1);
+                object? value = EvaluateExpression(unary.Operand);
+                sb.AppendLine($"{indentation}   └─ Значение: {FormatValue(value)}");
+            }
+
+            private static void AnalyzeMemberExpression(MemberExpression member, StringBuilder sb, string indentation)
+            {
+                sb.AppendLine($"{indentation}ЧЛЕН: {member.Member.Name}");
+                
+                if (member.Expression != null)
+                {
+                    object? instance = EvaluateExpression(member.Expression);
+                    sb.AppendLine($"{indentation}*- Объект: {instance?.GetType().Name ?? "null"}");
+                }
+            }
+
+
+            private static void AnalyzeConstantExpression(ConstantExpression constant, StringBuilder sb, string indentation)
+            {
+                sb.AppendLine($"{indentation}КОНСТАНТА: {FormatValue(constant.Value)}");
+            }
+
+
+            private static void AnalyzeMethodCallExpression(MethodCallExpression call, StringBuilder sb, int indent, string indentation)
+            {
+                sb.AppendLine($"{indentation}ВЫЗОВ МЕТОДА: {call.Method.Name}");
+                
+                if (call.Object != null)
+                {
+                    sb.AppendLine($"{indentation}|- НА ОБЪЕКТЕ:");
+                    AnalyzeNode(call.Object, sb, indent + 1);
+                }
+                
+                if (call.Arguments.Count > 0)
+                {
+                    sb.AppendLine($"{indentation}*- АРГУМЕНТЫ:");
+                    for (int i = 0; i < call.Arguments.Count; i++)
+                    {
+                        sb.AppendLine($"{indentation}   [{i}]:");
+                        AnalyzeNode(call.Arguments[i], sb, indent + 2);
+                        object? argValue = EvaluateExpression(call.Arguments[i]);
+                        sb.AppendLine($"{indentation}      *-Значение: {FormatValue(argValue)}");
+                    }
+                }
+            }
+
+
+            private static object? EvaluateExpression(Expression expr)
+            {
+                var lambda = Expression.Lambda<Func<object>>( Expression.Convert(expr, typeof(object)));
+                return lambda.Compile()();
+            }
+
+
+            private static string FormatValue(object? value)
+            {
+                if (value == null) return "null";
+                
+                if (value is string s) return $"\"{s}\"";
+                if (value is bool b) return b.ToString().ToUpper();
+                if (value is decimal || value is double || value is float)
+                    return $"{value} ({value.GetType().Name})";
+                
+                return $"{value} (тип: {value.GetType().Name})";
+            }
     }
 }

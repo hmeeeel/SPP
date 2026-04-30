@@ -30,35 +30,35 @@ public class PoolEventAggregator
                 switch (e.EventType)
                 {
                     case PoolEventType.TaskEnqueued:
-                        System.Threading.Interlocked.Increment(ref _totalTasksEnqueued);
+                        Interlocked.Increment(ref _totalTasksEnqueued);
                         break;
 
                     case PoolEventType.TaskCompleted:
-                        System.Threading.Interlocked.Increment(ref _totalTasksCompleted);
+                        Interlocked.Increment(ref _totalTasksCompleted);
                         break;
 
                     case PoolEventType.TaskFailed:
-                        System.Threading.Interlocked.Increment(ref _totalTasksFailed);
+                        Interlocked.Increment(ref _totalTasksFailed);
                         break;
 
                     case PoolEventType.ThreadCreated:
-                        System.Threading.Interlocked.Increment(ref _totalThreadsCreated);
+                        Interlocked.Increment(ref _totalThreadsCreated);
                         break;
 
                     case PoolEventType.ThreadTerminated:
-                        System.Threading.Interlocked.Increment(ref _totalThreadsTerminated);
+                        Interlocked.Increment(ref _totalThreadsTerminated);
                         break;
 
                     case PoolEventType.ScaleUp:
-                        System.Threading.Interlocked.Increment(ref _totalScaleUps);
+                        Interlocked.Increment(ref _totalScaleUps);
                         break;
 
                     case PoolEventType.ScaleDown:
-                        System.Threading.Interlocked.Increment(ref _totalScaleDowns);
+                        Interlocked.Increment(ref _totalScaleDowns);
                         break;
 
                     case PoolEventType.ThreadHung:
-                        System.Threading.Interlocked.Increment(ref _totalHungThreads);
+                        Interlocked.Increment(ref _totalHungThreads);
                         break;
                 }
             }

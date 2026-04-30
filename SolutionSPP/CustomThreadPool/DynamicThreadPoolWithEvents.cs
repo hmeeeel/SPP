@@ -28,11 +28,11 @@ namespace CustomThreadPool
         private readonly object _monitorSignal = new();
 
 
-        public event PoolLifecycleEventHandler? LifecycleEvent; // жизн цикл пула
-        public event PoolLifecycleEventHandler? ThreadCreatedEvent; // созд потока
-        public event PoolLifecycleEventHandler? ThreadTerminatedEvent; // зав потока
-        public event PoolLifecycleEventHandler? PoolScalingEvent; // масшт
-        public event PoolLifecycleEventHandler? ErrorEvent; // ошибка
+        public event PoolLifecycleEventHandler? LifecycleEvent;
+        public event PoolLifecycleEventHandler? ThreadCreatedEvent;
+        public event PoolLifecycleEventHandler? ThreadTerminatedEvent;
+        public event PoolLifecycleEventHandler? PoolScalingEvent;
+        public event PoolLifecycleEventHandler? ErrorEvent;
 
 
         public DynamicThreadPoolWithEvents(ThreadPoolOptions? options = null)
